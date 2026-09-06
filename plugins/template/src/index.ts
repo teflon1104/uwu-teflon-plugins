@@ -32,27 +32,34 @@ function Settings() {
 
 export default {
   onLoad: () => {
-    unpatch = before("sendMessage", MessageActions, (args) => {
-      try {
+    showToast("Wtyczka MEE6 aktywna nya! ( ͡° ͜ʖ ͡°)");
+
+    try {
+      unpatch = before("sendMessage", MessageActions, (args) => {
+        showToast("Wykryto wysłanie wiadomości nya!");
+
         const channelId = args[0];
         const channel = ChannelStore?.getChannel(channelId);
 
-        if (!channel) return;
-        if (storage.serverId && channel.guild_id !== storage.serverId) return;
+        if (storage.serverId && channel?.guild_id !== storage.serverId) {
+          return;
+        }
 
         if (!isOnCooldown) {
           isOnCooldown = true;
-          showToast("MEE6: 60s wystartowało nya!", 0);
+          showToast("MEE6: 60s wystartowało nya!");
 
           if (cooldownTimer) clearTimeout(cooldownTimer);
 
           cooldownTimer = setTimeout(() => {
             isOnCooldown = false;
-            showToast("MEE6: Minuta minęła! Pisz po exp nya! ( ͡° ͜ʖ ͡°)", 0);
+            showToast("MEE6: Minuta minęła! Pisz po exp nya! (⁄ ⁄•⁄ω⁄•⁄ ⁄)");
           }, 60000);
         }
-      } catch (err) {}
-    });
+      });
+    } catch (err: any) {
+      showToast(`Błąd przechwytywania: ${err?.message || err}`);
+    }
   },
   onUnload: () => {
     unpatch?.();
