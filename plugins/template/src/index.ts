@@ -7,7 +7,7 @@ import { Forms } from "@vendetta/ui/components";
 
 const MessageActions = findByProps("sendMessage", "receiveMessage");
 const ChannelStore = findByProps("getChannel", "getDMFromUserId");
-const NotificationModule = (findByProps("displayNotification") || findByProps("showNotification")) as any;
+const { DCDNotificationManager } = ReactNative.NativeModules;
 
 let unpatch: () => void;
 let cooldownTimer: any = null;
@@ -31,7 +31,7 @@ function Settings() {
     }),
     React.createElement((Forms as any).FormSwitchRow || (Forms as any).FormRow, {
       label: "Wibracje przy powiadomieniu",
-      subLabel: "Włącz lub wyłącz wstrząs telefonu po 60 sekundach nya",
+      subLabel: "Wstrząs telefonu po 60 sekundach nya",
       value: vibrate,
       onValueChange: (val: boolean) => {
         setVibrate(val);
@@ -43,6 +43,8 @@ function Settings() {
 
 export default {
   onLoad: () => {
+    showToast("Wtyczka MEE6 aktywna nya! ( ͡° ͜ʖ ͡°)");
+
     try {
       unpatch = before("sendMessage", MessageActions, (args) => {
         const channelId = args[0];
@@ -54,7 +56,7 @@ export default {
 
         if (!isOnCooldown) {
           isOnCooldown = true;
-          showToast("MEE6: 60 sekund wystartowało nya! (⊙_⊙)");
+          showToast("MEE6: 60s wystartowało nya! (⊙_⊙)");
 
           if (cooldownTimer) clearTimeout(cooldownTimer);
 
@@ -62,15 +64,18 @@ export default {
             isOnCooldown = false;
 
             try {
-              NotificationModule?.displayNotification?.({
-                title: "MEE6 Cooldown",
-                body: "Minuta minęła! Pisz po exp nya! ( ͡° ͜ʖ ͡°)"
-              });
+              if (DCDNotificationManager?.showNotification) {
+                DCDNotificationManager.showNotification(
+                  "https://cdn.discordapp.com/embed/avatars/0.png",
+                  "MEE6 Cooldown",
+                  "Minuta minęła! Pisz po exp nya! ( ͡° ͜ʖ ͡°)"
+                );
+              }
             } catch (err) {}
 
             if (storage.vibrate ?? true) {
               try {
-                (ReactNative as any)?.Vibration?.vibrate(400);
+                ReactNative.Vibration?.vibrate(400);
               } catch (err) {}
             }
 
