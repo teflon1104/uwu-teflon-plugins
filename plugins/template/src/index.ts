@@ -1,5 +1,5 @@
 import { findByProps } from "@vendetta/metro";
-import { before } from "@vendetta/patcher";
+import { before, instead } from "@vendetta/patcher";
 import { showToast } from "@vendetta/ui/toasts";
 import { storage } from "@vendetta/plugin";
 import { React, ReactNative } from "@vendetta/metro/common";
@@ -7,11 +7,94 @@ import { Forms } from "@vendetta/ui/components";
 
 const MessageActions = findByProps("sendMessage", "receiveMessage");
 const ChannelStore = findByProps("getChannel", "getDMFromUserId");
-const { DCDNotificationManager } = ReactNative.NativeModules;
+const SelectedChannelStore = findByProps("getChannelId", "getVoiceChannelId");
+const ChatInputModule = findByProps("ChatInput") as any;
+const { DCDNotificationManager } = (ReactNative as any)?.NativeModules || {};
 
-let unpatch: () => void;
-let cooldownTimer: any = null;
+let unpatches: (() => void)[] = [];
+let cooldownInterval: any = null;
+let cooldownSeconds = 0;
 let isOnCooldown = false;
+
+function ChatInputWrapper(props: any) {
+  const [, forceUpdate] = React.useReducer((x: number) => x + 1, 0);
+
+  React.useEffect(() => {
+    const timer = setInterval(() => {
+      if (cooldownSeconds > 0) {
+        forceUpdate();
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const activeProps = { ...props.originalProps };
+
+  if (cooldownSeconds > 0) {
+    const currentChannelId = SelectedChannelStore?.getChannelId?.();
+    const currentChannel = currentChannelId ? ChannelStore?.getChannel?.(currentChannelId) : null;
+
+    if (!storage.serverId || currentChannel?.guild_id === storage.serverId) {
+      activeProps.placeholder = `MEE6 Cooldown: ${cooldownSeconds}s nya~ (⊙_⊙)`;
+    }
+  }
+
+  return React.createElement(props.orig, activeProps);
+}
+
+function startCooldown() {
+  if (isOnCooldown) return;
+  isOnCooldown = true;
+  cooldownSeconds = 60;
+
+  showToast("MEE6: 60s wystartowało nya! (⊙_⊙)");
+
+  if (cooldownInterval) clearInterval(cooldownInterval);
+
+  cooldownInterval = setInterval(() => {
+    cooldownSeconds--;
+
+    if (cooldownSeconds <= 0) {
+      clearInterval(cooldownInterval);
+      cooldownInterval = null;
+      isOnCooldown = false;
+
+      if (storage.vibrate ?? true) {
+        try {
+          (ReactNative as any)?.Vibration?.vibrate([0, 250, 100, 250]);
+        } catch (err) {}
+      }
+
+      try {
+        if (DCDNotificationManager?.showNotification) {
+          try {
+            DCDNotificationManager.showNotification(
+              "https://cdn.discordapp.com/embed/avatars/0.png",
+              "MEE6 Cooldown",
+              "Minuta minęła! Pisz po exp nya! ( ͡° ͜ʖ ͡°)"
+            );
+          } catch (e) {
+            DCDNotificationManager.showNotification(
+              1337,
+              "mee6",
+              "MEE6 Cooldown",
+              "Minuta minęła! Pisz po exp nya! ( ͡° ͜ʖ ͡°)",
+              "https://cdn.discordapp.com/embed/avatars/0.png"
+            );
+          }
+        } else if (DCDNotificationManager?.displayNotification) {
+          DCDNotificationManager.displayNotification({
+            id: 1337,
+            title: "MEE6 Cooldown",
+            body: "Minuta minęła! Pisz po exp nya! ( ͡° ͜ʖ ͡°)"
+          });
+        }
+      } catch (err) {}
+
+      showToast("MEE6: Minuta minęła! Pisz po exp nya! (⁄ ⁄•⁄ω⁄•⁄ ⁄)");
+    }
+  }, 1000);
+}
 
 function Settings() {
   const [serverId, setServerId] = React.useState(storage.serverId || "");
@@ -46,49 +129,39 @@ export default {
     showToast("Wtyczka MEE6 aktywna nya! ( ͡° ͜ʖ ͡°)");
 
     try {
-      unpatch = before("sendMessage", MessageActions, (args) => {
-        const channelId = args[0];
-        const channel = ChannelStore?.getChannel(channelId);
+      unpatches.push(
+        before("sendMessage", MessageActions, (args) => {
+          const channelId = args[0];
+          const channel = ChannelStore?.getChannel(channelId);
 
-        if (storage.serverId && channel?.guild_id !== storage.serverId) {
-          return;
-        }
+          if (storage.serverId && channel?.guild_id !== storage.serverId) {
+            return;
+          }
 
-        if (!isOnCooldown) {
-          isOnCooldown = true;
-          showToast("MEE6: 60s wystartowało nya! (⊙_⊙)");
+          startCooldown();
+        })
+      );
 
-          if (cooldownTimer) clearTimeout(cooldownTimer);
-
-          cooldownTimer = setTimeout(() => {
-            isOnCooldown = false;
-
-            try {
-              if (DCDNotificationManager?.showNotification) {
-                DCDNotificationManager.showNotification(
-                  "https://cdn.discordapp.com/embed/avatars/0.png",
-                  "MEE6 Cooldown",
-                  "Minuta minęła! Pisz po exp nya! ( ͡° ͜ʖ ͡°)"
-                );
-              }
-            } catch (err) {}
-
-            if (storage.vibrate ?? true) {
-              try {
-                ReactNative.Vibration?.vibrate(400);
-              } catch (err) {}
-            }
-
-            showToast("MEE6: Minuta minęła! Pisz po exp nya! (⁄ ⁄•⁄ω⁄•⁄ ⁄)");
-          }, 60000);
-        }
-      });
-    } catch (err) {}
+      if (ChatInputModule?.ChatInput) {
+        unpatches.push(
+          instead("ChatInput", ChatInputModule, (args, orig) => {
+            return React.createElement(ChatInputWrapper, {
+              orig,
+              originalProps: args[0] || {}
+            });
+          })
+        );
+      }
+    } catch (err: any) {
+      showToast(`Błąd wtyczki: ${err?.message || err}`);
+    }
   },
   onUnload: () => {
-    unpatch?.();
-    if (cooldownTimer) clearTimeout(cooldownTimer);
+    unpatches.forEach((u) => u?.());
+    unpatches = [];
+    if (cooldownInterval) clearInterval(cooldownInterval);
     isOnCooldown = false;
+    cooldownSeconds = 0;
   },
   settings: Settings
 };
