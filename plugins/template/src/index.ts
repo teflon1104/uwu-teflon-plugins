@@ -1,60 +1,63 @@
 import { findByProps } from "@vendetta/metro";
-import { registerCommand } from "@vendetta/commands";
+import { before } from "@vendetta/patcher";
+import { showToast } from "@vendetta/ui/toasts";
+import { storage } from "@vendetta/plugin";
+import { React } from "@vendetta/metro/common";
+import { Forms } from "@vendetta/ui/components";
 
 const MessageActions = findByProps("sendMessage", "receiveMessage");
+const ChannelStore = findByProps("getChannel", "getDMFromUserId");
 
-let unregister: () => void;
+let unpatch: () => void;
+let cooldownTimer: any = null;
+let isOnCooldown = false;
+
+function Settings() {
+  const [serverId, setServerId] = React.useState(storage.serverId || "");
+
+  return React.createElement(
+    Forms.FormSection,
+    { title: "Ustawienia MEE6 nya!" },
+    React.createElement(Forms.FormInput, {
+      title: "ID Serwera",
+      placeholder: "Wklej ID serwera (puste = działa wszędzie)",
+      value: serverId,
+      onChange: (val: string) => {
+        setServerId(val);
+        storage.serverId = val.trim();
+      }
+    })
+  );
+}
 
 export default {
   onLoad: () => {
-    unregister = registerCommand({
-      name: "mee6",
-      displayName: "mee6",
-      description: "Sprawdź swoje statystyki MEE6 nya!",
-      displayDescription: "Sprawdź swoje statystyki MEE6 nya!",
-      options: [],
-      execute: async (args, ctx) => {
-        try {
-          const guildId = ctx.channel.guild_id;
-          const userId = ctx.channel.author?.id || ctx.user?.id;
+    unpatch = before("sendMessage", MessageActions, (args) => {
+      try {
+        const channelId = args[0];
+        const channel = ChannelStore?.getChannel(channelId);
 
-          if (!guildId) {
-            MessageActions.receiveMessage(ctx.channel.id, {
-              content: "Użyj tej komendy na kanale serwera z botem MEE6 nya! (⁄ ⁄•⁄ω⁄•⁄ ⁄)"
-            });
-            return;
-          }
+        if (!channel) return;
+        if (storage.serverId && channel.guild_id !== storage.serverId) return;
 
-          const res = await fetch(`https://mee6.xyz/api/plugins/levels/leaderboard/${guildId}`);
-          const data = await res.json();
-          const player = data.players?.find((p: any) => p.id === userId);
+        if (!isOnCooldown) {
+          isOnCooldown = true;
+          showToast("MEE6: 60s wystartowało nya!", 0);
 
-          if (!player) {
-            MessageActions.receiveMessage(ctx.channel.id, {
-              content: "Nie znaleziono Cię w TOP 100 tablicy serwera nya! (⊙_⊙)"
-            });
-            return;
-          }
+          if (cooldownTimer) clearTimeout(cooldownTimer);
 
-          const currentLvlXp = player.detailed_xp?.[0] || 0;
-          const neededLvlXp = player.detailed_xp?.[1] || 0;
-          const remainingXp = neededLvlXp - currentLvlXp;
-          const percent = Math.round((currentLvlXp / neededLvlXp) * 100);
-
-          const reply = `LVL: ${player.level} (${percent}%)\nPostęp: ${currentLvlXp} / ${neededLvlXp} XP\nBrakujący exp: ${remainingXp} XP\nWiadomości w bazie: ${player.message_count || 0}`;
-
-          MessageActions.receiveMessage(ctx.channel.id, {
-            content: reply
-          });
-        } catch (err: any) {
-          MessageActions.receiveMessage(ctx.channel.id, {
-            content: `Błąd pobierania MEE6 nya: ${err?.message || err}`
-          });
+          cooldownTimer = setTimeout(() => {
+            isOnCooldown = false;
+            showToast("MEE6: Minuta minęła! Pisz po exp nya! ( ͡° ͜ʖ ͡°)", 0);
+          }, 60000);
         }
-      }
+      } catch (err) {}
     });
   },
   onUnload: () => {
-    unregister?.();
-  }
+    unpatch?.();
+    if (cooldownTimer) clearTimeout(cooldownTimer);
+    isOnCooldown = false;
+  },
+  settings: Settings
 };
