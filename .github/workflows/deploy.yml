@@ -13,17 +13,13 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - uses: pnpm/action-setup@v2
-        with:
-          version: 8
-
       - name: Prepare environment
         uses: actions/setup-node@v3
         with:
-          node-version: "16"
+          node-version: "18"
 
       - name: Install deps
-        run: pnpm config set dangerously-allow-all-builds true && pnpm m i
+        run: npx --yes pnpm@8.15.9 m i
 
       - name: Build plugin(s)
         run: node ./build.mjs
